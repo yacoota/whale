@@ -1,0 +1,87 @@
+//  https://gitee.com/meetyoucrop/big-whale.git
+plugins {
+    id 'java'
+    id 'io.spring.dependency-management' version '1.0.9.RELEASE'
+}
+
+group = 'com.meiyouframework'
+version = 'community-1.1'
+
+sourceCompatibility = targetJavaVersion
+targetCompatibility = targetJavaVersion
+
+[compileJava, compileTestJava, javadoc]*.options*.encoding = 'UTF-8'
+
+
+configurations {
+    all*.exclude group: 'commons-logging'
+    developmentOnly
+    runtimeClasspath {
+        extendsFrom developmentOnly
+    }
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven { url "http://maven.aliyun.com/nexus/content/groups/public" }
+    maven { url "https://oss.sonatype.org/content/repositories/snapshots" }
+}
+
+ext {
+    nekohtml_version ="1.9.22"
+    mysql_connector_version ="5.1.39"
+    c3p0_version ="0.9.5.4"
+    quartz_version ="2.3.0"
+    ssh2_version ="262"
+    okhttp_version ="3.6.0"
+    fastjson_version ="1.2.70"
+    commons_lang_version ="2.5"
+    dom4j_version ="1.6.1"
+    apollo_version ="1.5.0"
+
+    lombok_version = "1.18.12"
+}
+
+dependencies {
+    implementation platform('org.springframework.boot:spring-boot-dependencies:2.0.5.RELEASE')
+
+    implementation "org.springframework.boot:spring-boot-starter-web"
+    implementation "org.springframework.boot:spring-boot-starter-thymeleaf"
+    implementation "org.springframework.boot:spring-boot-starter-security"
+    implementation "org.springframework.boot:spring-boot-starter-data-jpa"
+    implementation "org.springframework.boot:spring-boot-starter-mail"
+    implementation "org.springframework.boot:spring-boot-starter-quartz"
+    implementation "org.springframework.boot:spring-boot-configuration-processor"
+    implementation "net.sourceforge.nekohtml:nekohtml:${nekohtml_version}"
+    implementation "mysql:mysql-connector-java:${mysql_connector_version}"
+    implementation "com.mchange:c3p0:${c3p0_version}"
+    implementation "ch.ethz.ganymed:ganymed-ssh2:${ssh2_version}"
+    implementation "com.squareup.okhttp3:okhttp:${okhttp_version}"
+    implementation "com.alibaba:fastjson:${fastjson_version}"
+    implementation "commons-lang:commons-lang:${commons_lang_version}"
+    implementation "dom4j:dom4j:${dom4j_version}"
+
+    compileOnly "org.projectlombok:lombok:${lombok_version}"
+    annotationProcessor "org.projectlombok:lombok:${lombok_version}"
+    testCompileOnly "org.projectlombok:lombok:${lombok_version}"
+    testAnnotationProcessor "org.projectlombok:lombok:${lombok_version}"
+
+    testCompile "org.springframework.boot:spring-boot-starter-test"
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/main/java']
+        }
+        resources {
+            srcDirs = ['src/main/resources', 'src/main/webapp']
+        }
+    }
+}
+
+defaultTasks 'clean', 'build'
