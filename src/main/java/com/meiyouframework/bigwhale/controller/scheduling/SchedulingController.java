@@ -4,34 +4,43 @@ import com.meiyouframework.bigwhale.common.Constant;
 import com.meiyouframework.bigwhale.common.pojo.Msg;
 import com.meiyouframework.bigwhale.data.domain.PageRequest;
 import com.meiyouframework.bigwhale.dto.DtoScheduling;
+import com.meiyouframework.bigwhale.entity.CmdRecord;
 import com.meiyouframework.bigwhale.entity.Scheduling;
 import com.meiyouframework.bigwhale.entity.Script;
+import com.meiyouframework.bigwhale.service.CmdRecordService;
 import com.meiyouframework.bigwhale.service.SchedulingService;
 import com.meiyouframework.bigwhale.controller.BaseController;
 import com.meiyouframework.bigwhale.security.LoginUser;
 import com.meiyouframework.bigwhale.service.ScriptService;
-import com.meiyouframework.bigwhale.task.monitor.AbstractMonitorRunner;
-import com.meiyouframework.bigwhale.task.timed.TimedTask;
+import com.meiyouframework.bigwhale.task.streaming.AbstractMonitorRunner;
+import com.meiyouframework.bigwhale.task.batch.DagTask;
 import com.meiyouframework.bigwhale.util.SchedulerUtils;
 import org.apache.commons.lang.StringUtils;
 import org.quartz.SchedulerException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/scheduling")
 public class SchedulingController extends BaseController {
 
+    private DateFormat dateFormat = new SimpleDateFormat("yyyyMMddHHmmss");
     private Map<Integer, String> scriptIconClass = new HashMap<>();
 
     @Autowired
     private SchedulingService schedulingService;
     @Autowired
     private ScriptService scriptService;
+    @Autowired
+    private CmdRecordService cmdRecordService;
 
     public SchedulingController() {
         scriptIconClass.put(0, "icon-shell");
@@ -103,13 +112,12 @@ public class SchedulingController extends BaseController {
                 return failed();
             }
             if (dbScheduling.getType() == Constant.SCHEDULING_TYPE_BATCH) {
-                SchedulerUtils.deleteJob(dbScheduling.getId(), Constant.JobGroup.TIMED);
+                SchedulerUtils.deleteJob(dbScheduling.getId(), Constant.JobGroup.BATCH);
             } else {
-                SchedulerUtils.deleteJob(dbScheduling.getId(), Constant.JobGroup.MONITOR);
+                SchedulerUtils.deleteJob(dbScheduling.getId(), Constant.JobGroup.STREAMING);
             }
         }
         req.setUpdateTime(now);
-        req.setLastExecuteTime(null);
         Scheduling scheduling = new Scheduling();
         BeanUtils.copyProperties(req, scheduling);
         scheduling.setScriptIds(StringUtils.join(req.getScriptIds(), ","));
@@ -122,7 +130,7 @@ public class SchedulingController extends BaseController {
         scheduling = schedulingService.save(scheduling);
         if (scheduling.getEnabled()) {
             if (scheduling.getType() == Constant.SCHEDULING_TYPE_BATCH) {
-                TimedTask.build(scheduling);
+                DagTask.build(scheduling);
             } else {
                 AbstractMonitorRunner.build(scheduling);
             }
@@ -138,9 +146,9 @@ public class SchedulingController extends BaseController {
         Scheduling scheduling = schedulingService.findById(id);
         if (scheduling != null) {
             if (scheduling.getType() == Constant.SCHEDULING_TYPE_BATCH) {
-                SchedulerUtils.deleteJob(scheduling.getId(), Constant.JobGroup.TIMED);
+                SchedulerUtils.deleteJob(scheduling.getId(), Constant.JobGroup.BATCH);
             } else {
-                SchedulerUtils.deleteJob(scheduling.getId(), Constant.JobGroup.MONITOR);
+                SchedulerUtils.deleteJob(scheduling.getId(), Constant.JobGroup.STREAMING);
             }
             schedulingService.deleteById(id);
         }
@@ -149,19 +157,19 @@ public class SchedulingController extends BaseController {
 
     @SuppressWarnings("unchecked")
     private void generateNodeTree(Scheduling scheduling, Map<String, Object> node, String currentNodeId) {
-        Map<String, String> nodeIdToScriptId = scheduling.analyzeNextNode(currentNodeId);
-        for (Map.Entry<String, String> entry : nodeIdToScriptId.entrySet()) {
+        Map<String, Scheduling.NodeData> nodeIdToData = scheduling.analyzeNextNode(currentNodeId);
+        for (Map.Entry<String, Scheduling.NodeData> entry : nodeIdToData.entrySet()) {
             String nodeId = entry.getKey();
-            String scriptId = entry.getValue();
+            String scriptId = entry.getValue().scriptId;
             Script script = scriptService.findById(scriptId);
             if (currentNodeId == null) {
-                node.put("text", script.getName());
+                node.put("text", script.getName() + StringUtils.join(getCmdRecordStatus(scheduling, nodeId), ""));
                 node.put("data", nodeId);
                 node.put("icon", "iconfont " + scriptIconClass.get(script.getType()));
                 generateNodeTree(scheduling, node, nodeId);
             } else {
                 Map<String, Object> childNode = new HashMap<>();
-                childNode.put("text", script.getName());
+                childNode.put("text", script.getName() + StringUtils.join(getCmdRecordStatus(scheduling, nodeId), ""));
                 childNode.put("data", nodeId);
                 childNode.put("icon", "iconfont " + scriptIconClass.get(script.getType()));
                 List<Map<String, Object>> childNodes = (List<Map<String, Object>>)node.get("nodes");
@@ -173,5 +181,52 @@ public class SchedulingController extends BaseController {
                 generateNodeTree(scheduling, childNode, nodeId);
             }
         }
+    }
+
+    private List<String> getCmdRecordStatus(Scheduling scheduling, String nodeId) {
+        List<CmdRecord> cmdRecords;
+        if (scheduling.getType() == Constant.SCHEDULING_TYPE_BATCH) {
+            if (scheduling.getLastExecuteTime() != null) {
+                cmdRecords = cmdRecordService.findByQuery(
+                        ";schedulingId=" + scheduling.getId() +
+                                ";schedulingInstanceId=" + dateFormat.format(scheduling.getLastExecuteTime()) +
+                                ";schedulingNodeId=" + nodeId,
+                        Sort.by(Sort.Direction.ASC, "createTime"));
+            } else {
+                cmdRecords = new ArrayList<>();
+            }
+
+        } else {
+            CmdRecord cmdRecord = cmdRecordService.findOneByQuery(
+                    ";scriptId=" + scheduling.getScriptIds(),
+                    Sort.by(Sort.Direction.DESC, "createTime"));
+            if (cmdRecord != null) {
+                cmdRecords = Collections.singletonList(cmdRecord);
+            } else {
+                cmdRecords = new ArrayList<>();
+            }
+        }
+        return cmdRecords.stream().map(cmdRecord -> {
+            if (cmdRecord.getStatus() == Constant.EXEC_STATUS_UNSTART) {
+                return "<div class=\"cube label-info\"></div>";
+            }
+            if (cmdRecord.getStatus() == Constant.EXEC_STATUS_DOING)  {
+                return "<div class=\"cube label-warning\"></div>";
+            }
+            if (cmdRecord.getStatus() == Constant.EXEC_STATUS_FINISH) {
+                if (cmdRecord.getJobFinalStatus() == null) {
+                    return "<div class=\"cube label-success\"></div>";
+                } else {
+                    if ("UNDEFINED".equals(cmdRecord.getJobFinalStatus())) {
+                        return "<div class=\"cube label-warning\"></div>";
+                    }
+                    if ("SUCCEEDED".equals(cmdRecord.getJobFinalStatus())) {
+                        return "<div class=\"cube label-success\"></div>";
+                    }
+                    return "<div class=\"cube label-danger\"></div>";
+                }
+            }
+            return "<div class=\"cube label-danger\"></div>";
+        }).collect(Collectors.toList());
     }
 }

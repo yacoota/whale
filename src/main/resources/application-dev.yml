@@ -1,9 +1,9 @@
 spring:
   datasource:
     driver-class-name: com.mysql.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/whale?characterEncoding=utf-8&autoReconnect=true&failOverReadOnly=false&useSSL=false
-    username: whale
-    password: password
+    url: jdbc:mysql://localhost:3306/big-whale?characterEncoding=utf-8&autoReconnect=true&failOverReadOnly=false&useSSL=false
+    username: root
+    password: root
     tomcat:
       test-on-borrow: true
       test-while-idle: true

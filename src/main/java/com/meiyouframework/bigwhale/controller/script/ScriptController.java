@@ -122,7 +122,7 @@ public class ScriptController extends BaseController {
             if (dbScript == null) {
                 return failed();
             }
-            if (req.isOffline() != dbScript.isOffline()) {
+            if (req.isBatch() != dbScript.isBatch()) {
                 Scheduling scheduling = schedulingService.findOneByQuery("scriptIds?" + req.getId());
                 if (scheduling != null) {
                     return failed("变更处理类型前请先移除相关任务调度");
@@ -281,7 +281,7 @@ public class ScriptController extends BaseController {
     private void dealUserAndQueue(Set<String> queueAndApps, DtoScript req) {
         req.setUser(null);
         String script = req.getScript();
-        ClusterUser user = clusterUserService.findByUidAndClusterId(req.getUid(), req.getClusterId());
+        ClusterUser user = clusterUserService.findOneByQuery("uid=" + req.getUid() + ";clusterId=" + req.getClusterId());
         String queue = user.getQueue();
         String argQueue = req.getQueue();
         if (req.getType() == Constant.SCRIPT_TYPE_SPARK_STREAMING || req.getType() == Constant.SCRIPT_TYPE_SPARK_BATCH) {
